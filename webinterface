@@ -1,0 +1,225 @@
+#!perl
+use strict;
+use warnings FATAL => 'all';
+use Address::db::Address;
+use Data::Dumper;
+use Abills::Base;
+our ($db, $admin, %conf, $html, %lang,);
+
+my $Address = Address::db::Address->new($db, $admin, \%conf);
+
+sub address {
+
+  $html->tpl_show(_include('Address_tabs_1', 'Address'), $Address);
+
+  my $show_template_city     = $FORM{add_form_city}     || 0;
+  my $show_template_district = $FORM{add_form_district} || 0;
+  my $show_template_street   = $FORM{add_form_street}   || 0;
+  my $show_template_building = $FORM{add_form_building} || 0;
+  $Address->{LNG_ACTION} = $lang{ADD};
+
+  if ($FORM{add_city}) {
+    $Address->city_add(\%FORM);
+    $show_template_city = 1;
+  }
+  elsif ($FORM{add_district}) {
+    $Address->district_add(\%FORM);
+    $show_template_district = 1;
+  }
+  elsif ($FORM{add_street}) {
+    $Address->street_add(\%FORM);
+    $show_template_street = 1;
+  }
+  elsif ($FORM{add_building}) {
+    $Address->building_add(\%FORM);
+    $show_template_building = 1;
+  }
+  elsif ($FORM{change}) {
+    $Address->district_update({%FORM});
+  }
+
+  elsif ($FORM{chg}) {
+    my $user_data = $Address->district_info($FORM{'chg'});
+    if (!$Address->{errno}) {
+      $html->message('info', $lang{INFO}, $lang{CHANGING});
+    }
+    $Address->{ACTION}      = 'change';
+    $Address->{LNG_ACTION}  = $lang{CHANGE};
+    $show_template_district = 1;
+  }
+  elsif ($FORM{city_del} && $FORM{COMMENTS}) {
+    $Address->city_del({ ID => $FORM{city_del}, COMMENTS => $FORM{COMMENTS} });
+
+    #show_result($Address, $lang{DELETED});
+  }
+  elsif ($FORM{district_del} && $FORM{COMMENTS}) {
+    $Address->district_del({ ID => $FORM{district_del}, COMMENTS => $FORM{COMMENTS} });
+
+    #show_result($Address, $lang{DELETED});
+  }
+  elsif ($FORM{street_del} && $FORM{COMMENTS}) {
+    $Address->street_del({ ID => $FORM{street_del}, COMMENTS => $FORM{COMMENTS} });
+
+    #show_result($Address, $lang{DELETED});
+  }
+  elsif ($FORM{building_del} && $FORM{COMMENTS}) {
+    $Address->building_del({ ID => $FORM{building_del}, COMMENTS => $FORM{COMMENTS} });
+
+    #show_result($Address, $lang{DELETED});
+  }
+
+  _error_show($Address);
+
+  if ($show_template_city) {
+    $Address->{ACTION} = 'add_city';
+    $html->tpl_show(_include('Address_form_city', 'Address'), $Address);
+  }
+
+  if ($show_template_district) {
+    $Address->{ACTION} = 'add_district';
+    my $city_select = $html->form_select(
+      'CITY_ID',
+      {
+        SELECTED => $FORM{CITY_ID} || q{},
+        SEL_LIST  => $Address->city_get({ COLS_NAME => 1 }),
+        SEL_KEY   => 'city_id',
+        SEL_VALUE => 'city_name',
+        NO_ID     => 1
+      }
+    );
+    $html->tpl_show(_include('Address_form_district', 'Address'), { CITY_SELECT => $city_select, %$Address });
+  }
+
+  if ($show_template_street) {
+    $Address->{ACTION} = 'add_street';
+    my $district_select = $html->form_select(
+      'DISTRICT_ID',
+      {
+        SELECTED => $FORM{DISTRICT_ID} || q{},
+        SEL_LIST   => $Address->district_get({ COLS_NAME => 1 }),
+        SEL_KEY    => 'district_id',
+        SEL_VALUE  => 'district_name',
+        SEL_VALUE2 => 'city_name',
+        NO_ID      => 1
+      }
+    );
+    $html->tpl_show(_include('Address_form_street', 'Address'), { DISTRICT_SELECT => $district_select, %$Address });
+  }
+
+  if ($show_template_building) {
+    $Address->{ACTION} = 'add_building';
+    my $street_select = $html->form_select(
+      'STREET_ID',
+      {
+        SELECTED => $FORM{STREET_ID} || q{},
+        SEL_LIST  => $Address->street_get({ COLS_NAME => 1 }),
+        SEL_KEY   => 'street_id',
+        SEL_VALUE => 'street_name',
+        NO_ID     => 1
+      }
+    );
+    $html->tpl_show(_include('Address_form_building', 'Address'), { STREET_SELECT => $street_select, %$Address });
+  }
+
+  my $country_get      = $Address->country_get();
+  my $region_get       = $Address->region_get();
+  my $city_get         = $Address->city_get();
+  my $district_get     = $Address->district_get();
+  my $street_get       = $Address->street_get();
+  my $building_get     = $Address->building_get();
+
+  my $table = $html->table(
+    {
+      width   => '100%',
+      caption => $lang{USERS},
+      border  => 1,
+      title   => [ "Дом", $lang{STREET}, $lang{DISTRICT}, $lang{CITY}, "Область", $lang{COUNTRY} ],
+      pages   => $Address->{TOTAL},
+      qs      => $pages_qs,
+      ID      => 'USERS_ID',
+    }
+  );
+
+  $table->addrow(
+    $html->button($lang{ADD}, "index=$index&add_form_building=1&$pages_qs:add_building"),
+    $html->button($lang{ADD}, "index=$index&add_form_street=1&$pages_qs:add_street"),
+    $html->button($lang{ADD}, "index=$index&add_form_district=1&$pages_qs:add_district"),
+    $html->button($lang{ADD}, "index=$index&add_form_city=1&$pages_qs:add_city"),
+    "", "",
+  );
+  foreach my $line (@$building_get) {
+    $table->addrow($html->button($lang{DEL}, "index=$index&building_del=$line->{building_id}", { class => 'del', MESSAGE => 'Delete &' }) . " " . $line->{building_name}, $line->{street_name}, $line->{district_name}, $line->{city_name}, $line->{region_name}, $line->{country_name},);
+  }
+  foreach my $line (@$street_get) {
+    $table->addrow("", $html->button($lang{DEL}, "index=$index&street_del=$line->{street_id}", { class => 'del', MESSAGE => 'Delete &' }) . " " . $line->{street_name}, $line->{district_name}, $line->{city_name}, $line->{region_name}, $line->{country_name},);
+  }
+  foreach my $line (@$district_get) {
+    $table->addrow("", "", $html->button($lang{DEL}, "index=$index&district_del=$line->{district_id}", { class => 'del', MESSAGE => 'Delete &' }) . " " . $line->{district_name}, $line->{city_name}, $line->{region_name}, $line->{country_name},);
+  }
+  foreach my $line (@$city_get) {
+    $table->addrow("", "", "", $html->button($lang{DEL}, "index=$index&city_del=$line->{city_id}", { class => 'del', MESSAGE => 'Delete &' }) . " " . $line->{city_name}, $line->{region_name}, $line->{country_name},);
+  }
+
+  print $table->show();
+
+  $html->tpl_show(_include('Address_tabs_2', 'Address'), $Address);
+
+  $html->tpl_show(_include('Address_tree', 'Address'), $Address);
+
+  my $tree;
+
+  print "<ul>";
+  foreach my $country (@$country_get) {
+    print "<li><span><i class='fa fa-minus-circle'></i> " . $country->{country_name} . "</span>";
+
+    print "<ul>";
+    foreach my $region (@$region_get) {
+      next if ($region->{country_id} != $country->{country_id});
+      print "<li><span><i class='fa fa-minus-circle'></i> " . $region->{region_name} . "</span>";
+
+      print "<ul>";
+      foreach my $city (@$city_get) {
+        next if ($city->{region_id} != $region->{region_id});
+        print "<li><span><i class='fa fa-minus-circle'></i> " . $city->{city_name} . "</span>";
+
+        print "<ul>";
+        foreach my $district (@$district_get) {
+          next if ($district->{city_id} != $city->{city_id});
+          print "<li><span><i class='fa fa-minus-circle'></i> " . $district->{district_name} . "</span>";
+
+          print "<ul>";
+          foreach my $street (@$street_get) {
+            next if ($street->{district_id} != $district->{district_id});
+            print "<li><span><i class='fa fa-minus-circle'></i> " . $street->{street_name} . "</span>";
+
+            print "<ul>";
+            foreach my $building (@$building_get) {
+              next if ($building->{street_id} != $street->{street_id});
+              $tree->{ $country->{country_name} }->{ $region->{region_name} }->{ $city->{city_name} }->{ $district->{district_name} }->{ $street->{street_name} }->{ $building->{building_name} } = 1;
+              print "<li><span><i class='fa fa-minus-circle'></i> " . $building->{building_name} . "</span>";
+
+            }
+            print "</li></ul>";
+          }
+          print "</li></ul>";
+        }
+        print "</li></ul>";
+      }
+      print "</li></ul>";
+    }
+    print "</li></ul>";
+  }
+  print "</li></ul>";
+  print "</div>";
+
+  $html->tpl_show(_include('Address_tabs_3', 'Address'), $Address);
+
+  #use Abills::Base;
+  #_bp("1", $tree);
+
+  $html->tpl_show(_include('Address_tabs_3', 'Address'), $Address);
+
+  return 1;
+}
+
+1;
